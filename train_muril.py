@@ -1,0 +1,101 @@
+# train_muril.py
+
+import pandas as pd
+from datasets import Dataset
+from sklearn.model_selection import train_test_split
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, TrainingArguments, Trainer
+import numpy as np
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support
+
+# --- Configuration ---
+MODEL_CHECKPOINT = "google/muril-base-cased"
+CSV_FILE_PATH = r"E:\F & R News Dataset\all_news_data.csv" # Path to the CSV from Step 1
+OUTPUT_MODEL_DIR = "./muril-finetuned-fake-news" # Where to save the final model
+
+# 1. Load and Split the Dataset
+print("Loading and splitting the dataset...")
+df = pd.read_csv(CSV_FILE_PATH)
+
+# Stratified split to maintain label distribution
+train_df, test_df = train_test_split(
+    df,
+    test_size=0.2,
+    random_state=42,
+    stratify=df['label']
+)
+
+train_dataset = Dataset.from_pandas(train_df)
+test_dataset = Dataset.from_pandas(test_df)
+
+print(f"Training samples: {len(train_dataset)}, Testing samples: {len(test_dataset)}")
+
+# 2. Load Tokenizer and Preprocess Data
+print("Loading tokenizer and preprocessing data...")
+tokenizer = AutoTokenizer.from_pretrained(MODEL_CHECKPOINT)
+
+def tokenize_function(examples):
+    # The tokenizer handles padding and truncation automatically
+    return tokenizer(examples["text"], padding="max_length", truncation=True, max_length=512)
+
+tokenized_train_dataset = train_dataset.map(tokenize_function, batched=True)
+tokenized_test_dataset = test_dataset.map(tokenize_function, batched=True)
+
+# Remove columns that the model doesn't need
+tokenized_train_dataset = tokenized_train_dataset.remove_columns(['text', 'language', '__index_level_0__'])
+tokenized_test_dataset = tokenized_test_dataset.remove_columns(['text', 'language', '__index_level_0__'])
+
+# 3. Define the Model and Metrics
+print("Defining model and metrics...")
+model = AutoModelForSequenceClassification.from_pretrained(MODEL_CHECKPOINT, num_labels=2)
+
+def compute_metrics(pred):
+    labels = pred.label_ids
+    preds = np.argmax(pred.predictions, axis=1)
+    precision, recall, f1, _ = precision_recall_fscore_support(labels, preds, average='binary')
+    acc = accuracy_score(labels, preds)
+    return {
+        'accuracy': acc,
+        'f1': f1,
+        'precision': precision,
+        'recall': recall
+    }
+
+# 4. Define Training Arguments
+training_args = TrainingArguments(
+    output_dir=OUTPUT_MODEL_DIR,
+    num_train_epochs=3,              # A good starting point
+    per_device_train_batch_size=8,   # Adjust based on your GPU memory (8, 16, 32)
+    per_device_eval_batch_size=16,
+    warmup_steps=500,
+    weight_decay=0.01,
+    logging_dir='./logs',
+    logging_steps=100,
+    evaluation_strategy="epoch",     # Evaluate at the end of each epoch
+    save_strategy="epoch",           # Save model at the end of each epoch
+    load_best_model_at_end=True,     # Load the best performing model when training is done
+    metric_for_best_model="f1",
+    fp16=True,                       # Use mixed precision for faster training if you have a compatible GPU
+)
+
+# 5. Initialize and Run Trainer
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=tokenized_train_dataset,
+    eval_dataset=tokenized_test_dataset,
+    compute_metrics=compute_metrics,
+    tokenizer=tokenizer,
+)
+
+print("\nStarting model training...")
+trainer.train()
+
+# 6. Save the final model
+print("\nTraining complete. Saving the best model...")
+trainer.save_model(OUTPUT_MODEL_DIR)
+print(f"✓ Model saved to {OUTPUT_MODEL_DIR}")
+
+# 7. Evaluate the final model
+print("\nEvaluating the final model on the test set...")
+eval_results = trainer.evaluate()
+print(f"Final Evaluation Results: {eval_results}")
