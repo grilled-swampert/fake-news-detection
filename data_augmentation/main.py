@@ -75,7 +75,7 @@ def test_dataset_augmentation():
 
     # Save to CSV (optional)
     # augmented_df.to_csv('augmented_data.csv', index=False)
-    # print("\n✅ Saved to 'augmented_data.csv'")
+    # print("\n Saved to 'augmented_data.csv'")
 
 
 def test_multilingual_dataset():
@@ -168,13 +168,13 @@ if __name__ == "__main__":
         # test_all_techniques()
 
         print("\n" + "=" * 70)
-        print("✅ All examples completed successfully!")
+        print("All examples completed successfully!")
         print("=" * 70)
 
     except KeyboardInterrupt:
-        print("\n\n⚠️  Interrupted by user")
+        print("\n\n Interrupted by user")
     except Exception as e:
-        print(f"\n\n❌ Error: {e}")
+        print(f"\n\n Error: {e}")
         import traceback
 
         traceback.print_exc()

@@ -28,7 +28,7 @@ try:
     from IndicTransToolkit.processor import IndicProcessor
     INDIC_PROCESSOR_AVAILABLE = True
 except ImportError:
-    print("⚠️  IndicTransToolkit not available, back translation will be disabled")
+    print("IndicTransToolkit not available, back translation will be disabled")
     INDIC_PROCESSOR_AVAILABLE = False
 
 
@@ -51,12 +51,12 @@ class IndicAugmentationPipeline:
                 else:
                     self.device = 'cpu'
             except (AssertionError, RuntimeError):
-                print("⚠️  CUDA not available, falling back to CPU")
+                print("CUDA not available, falling back to CPU")
                 self.device = 'cpu'
 
-        print(f"🚀 Initializing models on device: {self.device}")
+        print(f"Initializing models on device: {self.device}")
         if self.device == 'cpu':
-            print("💡 Tip: Install CUDA-enabled PyTorch for 10-20x speedup")
+            print("Tip: Install CUDA-enabled PyTorch for 10-20x speedup")
 
         # Language mapping
         self.lang_code_map = {
@@ -99,18 +99,18 @@ class IndicAugmentationPipeline:
 
             # Initialize IndicProcessor if available
             if INDIC_PROCESSOR_AVAILABLE:
-                print("📦 Initializing IndicProcessor...")
+                print("Initializing IndicProcessor...")
                 try:
                     self.ip = IndicProcessor(inference=True)
-                    print("✅ IndicProcessor initialized successfully")
+                    print("IndicProcessor initialized successfully")
                 except Exception as e:
-                    print(f"⚠️  IndicProcessor initialization failed: {e}")
+                    print(f"IndicProcessor initialization failed: {e}")
                     print("   Back translation will be disabled")
                     self.ip = None
             else:
                 self.ip = None
 
-            print("📦 Loading IndicTrans2 (Indic→En) model...")
+            print("Loading IndicTrans2 (Indic→En) model...")
             self.trans_tokenizer_in_en = AutoTokenizer.from_pretrained(
                 "ai4bharat/indictrans2-indic-en-1B",
                 trust_remote_code=True
@@ -125,7 +125,7 @@ class IndicAugmentationPipeline:
             if self.trans_tokenizer_in_en.pad_token is None:
                 self.trans_tokenizer_in_en.pad_token = self.trans_tokenizer_in_en.eos_token
 
-            print("📦 Loading IndicTrans2 (En→Indic) model...")
+            print("Loading IndicTrans2 (En→Indic) model...")
             self.trans_tokenizer_en_in = AutoTokenizer.from_pretrained(
                 "ai4bharat/indictrans2-en-indic-1B",
                 trust_remote_code=True
@@ -137,11 +137,11 @@ class IndicAugmentationPipeline:
             self.trans_model_en_in.to(self.device)
             self.trans_model_en_in.eval()
 
-            print("✅ All models loaded successfully!\n")
+            print("All models loaded successfully!\n")
 
         except Exception as e:
-            print(f"❌ Error loading models: {e}")
-            print("\n💡 Troubleshooting:")
+            print(f"Error loading models: {e}")
+            print("\nTroubleshooting:")
             print("   1. Check internet connection (models download on first run)")
             print("   2. Ensure you have ~8GB free disk space")
             print("   3. Try: pip install --upgrade transformers torch IndicTransToolkit")
@@ -227,7 +227,7 @@ class IndicAugmentationPipeline:
             return augmented_text if augmented_text != text else text
 
         except Exception as e:
-            print(f"⚠️  MLM augmentation failed: {e}")
+            print(f"MLM augmentation failed: {e}")
             return text
 
     # =========================================================================
@@ -291,14 +291,14 @@ class IndicAugmentationPipeline:
     def augment_with_back_translation(self, text: str, lang_code: str) -> str:
         """
         Augment text using back translation (Indic → English → Indic)
-        Fixed version with proper IndicTrans2 preprocessing
+        Fixed version with proper error handling and use_cache=False
         """
         try:
             # Validate input
             if not text or not text.strip():
                 return text
 
-            print(f"   🔄 Original: {text[:50]}...")
+            print(f"   Original: {text}...")
 
             # ====================================================================
             # STEP 1: Indic → English
@@ -314,39 +314,38 @@ class IndicAugmentationPipeline:
                     )
                     preprocessed_text = batch[0] if batch and batch[0] else None
                 except Exception as e:
-                    print(f"   ⚠️ IndicProcessor failed: {e}")
+                    print(f"   IndicProcessor failed: {e}")
                     preprocessed_text = None
             else:
                 preprocessed_text = None
 
             # Fallback: Manual preprocessing
             if not preprocessed_text or not preprocessed_text.strip():
-                # IndicTrans2 expects format: "source_lang target_lang text"
-                preprocessed_text = text
+                preprocessed_text = f"{lang_code} eng_Latn {text}"
                 print(f"   Using fallback preprocessing")
 
-            print(f"   Preprocessed: {preprocessed_text[:50]}...")
+            print(f"   Preprocessed: {preprocessed_text}...")
 
             # Tokenize for Indic→En
             try:
                 inputs_to_en = self.trans_tokenizer_in_en(
-                    [preprocessed_text],  # Pass as list
+                    [preprocessed_text],
                     padding=True,
                     truncation=True,
                     max_length=256,
                     return_tensors='pt'
                 )
             except Exception as e:
-                print(f"   ⚠️ Tokenization failed: {e}")
+                print(f"   Tokenization failed: {e}")
                 return text
 
             # Validate tokenization
             if not inputs_to_en or 'input_ids' not in inputs_to_en:
-                print(f"   ⚠️ Invalid tokenization result")
+                print(f"   Invalid tokenization result")
                 return text
 
             if inputs_to_en['input_ids'].shape[1] == 0:
-                print(f"   ⚠️ Empty tokenization")
+                print(f"   Empty tokenization")
                 return text
 
             # Move to device
@@ -354,11 +353,10 @@ class IndicAugmentationPipeline:
 
             print(f"   Input shape: {inputs_to_en['input_ids'].shape}")
 
-            # Generate English translation
-            # Try different generation strategies to work around model bugs
+            # Generate English translation with use_cache=False
             with torch.no_grad():
                 try:
-                    # Strategy 1: Try with use_cache=False (disables past_key_values)
+                    # CRITICAL: use_cache=False to avoid past_key_values bug
                     generated_tokens = self.trans_model_in_en.generate(
                         **inputs_to_en,
                         num_beams=5,
@@ -369,7 +367,7 @@ class IndicAugmentationPipeline:
                 except (AttributeError, TypeError) as e:
                     print(f"   Beam search failed, trying greedy decoding: {e}")
                     try:
-                        # Strategy 2: Use greedy decoding (no beam search)
+                        # Strategy 2: Use greedy decoding
                         generated_tokens = self.trans_model_in_en.generate(
                             **inputs_to_en,
                             max_length=256,
@@ -403,10 +401,10 @@ class IndicAugmentationPipeline:
             english_text = english_text.strip()
 
             if not english_text:
-                print(f"   ⚠️ Empty English translation")
+                print(f"   Empty English translation")
                 return text
 
-            print(f"   → English: {english_text[:50]}...")
+            print(f"   → English: {english_text}...")
 
             # ====================================================================
             # STEP 2: English → Indic
@@ -422,49 +420,65 @@ class IndicAugmentationPipeline:
                     )
                     preprocessed_english = batch[0] if batch and batch[0] else None
                 except Exception as e:
-                    print(f"   ⚠️ IndicProcessor failed: {e}")
+                    print(f"   IndicProcessor failed: {e}")
                     preprocessed_english = None
             else:
                 preprocessed_english = None
 
             # Fallback
             if not preprocessed_english or not preprocessed_english.strip():
-                preprocessed_english = english_text
+                preprocessed_english = f"eng_Latn {lang_code} {english_text}"
                 print(f"   Using fallback preprocessing for English")
 
             # Tokenize for En→Indic
             try:
                 inputs_to_indic = self.trans_tokenizer_en_in(
-                    [preprocessed_english],  # Pass as list
+                    [preprocessed_english],
                     padding=True,
                     truncation=True,
                     max_length=256,
                     return_tensors='pt'
                 )
             except Exception as e:
-                print(f"   ⚠️ Tokenization failed: {e}")
+                print(f"   Tokenization failed: {e}")
                 return text
 
             # Validate
             if not inputs_to_indic or 'input_ids' not in inputs_to_indic:
-                print(f"   ⚠️ Invalid tokenization result")
+                print(f"   Invalid tokenization result")
                 return text
 
             if inputs_to_indic['input_ids'].shape[1] == 0:
-                print(f"   ⚠️ Empty tokenization")
+                print(f"   Empty tokenization")
                 return text
 
             # Move to device
             inputs_to_indic = {k: v.to(self.device) for k, v in inputs_to_indic.items()}
 
-            # Generate Indic translation
+            # Generate Indic translation with use_cache=False
             with torch.no_grad():
-                generated_tokens = self.trans_model_en_in.generate(
-                    **inputs_to_indic,
-                    num_beams=5,
-                    num_return_sequences=1,
-                    max_length=256
-                )
+                try:
+                    # CRITICAL FIX: Add use_cache=False here too!
+                    generated_tokens = self.trans_model_en_in.generate(
+                        **inputs_to_indic,
+                        num_beams=5,
+                        num_return_sequences=1,
+                        max_length=256,
+                        use_cache=False  # <-- THIS WAS MISSING!
+                    )
+                except (AttributeError, TypeError) as e:
+                    print(f"   Beam search failed, trying greedy decoding: {e}")
+                    try:
+                        # Fallback to greedy decoding
+                        generated_tokens = self.trans_model_en_in.generate(
+                            **inputs_to_indic,
+                            max_length=256,
+                            do_sample=False,
+                            use_cache=False
+                        )
+                    except Exception as e:
+                        print(f"   Back translation failed: {type(e).__name__}: {e}")
+                        return text
 
             # Decode
             indic_translations = self.trans_tokenizer_en_in.batch_decode(
@@ -489,19 +503,149 @@ class IndicAugmentationPipeline:
             back_translated = back_translated.strip()
 
             if not back_translated:
-                print(f"   ⚠️ Empty back translation")
+                print(f"   Empty back translation")
                 return text
 
-            print(f"   → Back translated: {back_translated[:50]}...")
+            print(f"   Back translated: {back_translated}...")
 
             return back_translated
 
         except Exception as e:
-            print(f"   ⚠️ Back translation failed: {type(e).__name__}: {e}")
+            print(f"   Back translation failed: {type(e).__name__}: {e}")
             import traceback
             traceback.print_exc()
             return text
+
+    def save_augmented_samples_to_csv(self,
+                                    df: pd.DataFrame,
+                                    output_path: str,
+                                    num_aug_per_row: int = 3,
+                                    techniques: List[str] = None,
+                                    text_column: str = 'text',
+                                    label_column: str = 'label',
+                                    language_column: str = 'language',
+                                    include_original: bool = True) -> pd.DataFrame:
+        """
+        Create CSV with original text and augmented versions in separate columns
         
+        Args:
+            df: Input DataFrame
+            output_path: Path to save CSV file
+            num_aug_per_row: Number of augmentations per sample
+            techniques: List of techniques ['mlm', 'back_translation'] or None (use both)
+            text_column: Name of text column
+            label_column: Name of label column
+            language_column: Name of language column
+            include_original: Whether to include original text column
+            
+        Returns:
+            DataFrame with original and augmented columns
+        """
+        print(f"Creating augmented samples CSV...")
+        print(f"   Input samples: {len(df)}")
+        print(f"   Augmentations per sample: {num_aug_per_row}")
+        
+        # Default to both techniques if available
+        if techniques is None:
+            techniques = ["mlm"]
+            if self.ip is not None:
+                techniques.append("back_translation")
+            else:
+                print("   Back translation disabled (IndicProcessor not available)")
+        
+        # Create result DataFrame with original columns
+        result_data = []
+        
+        for idx, row in df.iterrows():
+            original_text = row[text_column]
+            original_label = row[label_column]
+            original_lang = row[language_column]
+            
+            # Start with original data
+            row_data = {
+                label_column: original_label,
+                language_column: original_lang
+            }
+            
+            if include_original:
+                row_data['original_text'] = original_text
+            
+            # Map language
+            lang_code = self.map_language(original_lang)
+            if not lang_code:
+                print(f"   Unknown language: {original_lang}, skipping row {idx}")
+                # Add empty augmentations
+                for i in range(num_aug_per_row):
+                    row_data[f'augmented_{i+1}'] = ''
+                result_data.append(row_data)
+                continue
+            
+            # Generate augmentations
+            augmented_texts = []
+            for i in range(num_aug_per_row):
+                # Randomly choose technique
+                technique = random.choice(techniques)
+                
+                try:
+                    if technique == "mlm":
+                        aug_text = self.augment_with_mlm(
+                            original_text,
+                            mask_ratio=0.15,
+                            top_k=5
+                        )
+                    elif technique == "back_translation":
+                        aug_text = self.augment_with_back_translation(
+                            original_text,
+                            lang_code
+                        )
+                    else:
+                        aug_text = original_text
+                    
+                    # Only add if different from original
+                    if aug_text != original_text and aug_text.strip():
+                        augmented_texts.append(aug_text)
+                    else:
+                        augmented_texts.append(original_text)  # Keep original if augmentation failed
+                        
+                except Exception as e:
+                    print(f"   Augmentation failed for row {idx}: {e}")
+                    augmented_texts.append(original_text)  # Fallback to original
+            
+            # Add augmented columns
+            for i, aug_text in enumerate(augmented_texts):
+                row_data[f'augmented_{i+1}'] = aug_text
+            
+            result_data.append(row_data)
+            
+            # Progress update
+            if (idx + 1) % 50 == 0:
+                print(f"   Processed: {idx + 1}/{len(df)} samples...")
+        
+        # Create DataFrame
+        result_df = pd.DataFrame(result_data)
+        
+        # Save to CSV
+        result_df.to_csv(output_path, index=False, encoding='utf-8')
+        
+        print(f"\nAugmented CSV saved to: {output_path}")
+        print(f"   Total rows: {len(result_df)}")
+        print(f"   Columns: {list(result_df.columns)}")
+        
+        # Show sample
+        print(f"\nSample (first row):")
+        if len(result_df) > 0:
+            sample = result_df.iloc[0]
+            print(f"   Label: {sample[label_column]}")
+            print(f"   Language: {sample[language_column]}")
+            if include_original:
+                print(f"   Original: {sample['original_text'][:60]}...")
+            for i in range(num_aug_per_row):
+                col = f'augmented_{i+1}'
+                if col in sample:
+                    print(f"   Aug {i+1}: {sample[col][:60]}...")
+        
+        return result_df
+
     # =========================================================================
     # DATASET AUGMENTATION
     # =========================================================================
@@ -534,7 +678,7 @@ class IndicAugmentationPipeline:
         Returns:
             Augmented DataFrame
         """
-        print(f"🔄 Starting augmentation pipeline...")
+        print(f"Starting augmentation pipeline...")
         print(f"   Original samples: {len(df)}")
         print(f"   Augmentations per sample: {num_aug_per_row}")
 
@@ -544,7 +688,7 @@ class IndicAugmentationPipeline:
             if self.ip is not None:
                 techniques.append("back_translation")
             else:
-                print("   ⚠️  Back translation disabled (IndicProcessor not available)")
+                print(" Back translation disabled (IndicProcessor not available)")
 
         # Calculate augmentation strategy if balancing
         aug_strategy = {}
@@ -574,7 +718,7 @@ class IndicAugmentationPipeline:
             # Map language
             lang_code = self.map_language(original_lang)
             if not lang_code:
-                print(f"⚠️  Unknown language: {original_lang}, skipping augmentation")
+                print(f"Unknown language: {original_lang}, skipping augmentation")
                 continue
 
             # Determine number of augmentations
@@ -606,7 +750,7 @@ class IndicAugmentationPipeline:
                             successful_aug['back_translation'] += 1
 
                 except Exception as e:
-                    print(f"⚠️  Augmentation failed for: '{original_text[:50]}...' | Error: {e}")
+                    print(f"Augmentation failed for: '{original_text}...' | Error: {e}")
                     failed_aug += 1
                     continue
 
@@ -625,17 +769,17 @@ class IndicAugmentationPipeline:
         augmented_df = pd.DataFrame(new_rows)
 
         # Print statistics
-        print(f"\n✅ Augmentation complete!")
+        print(f"\nAugmentation complete!")
         print(f"   Original: {len(df):,} samples")
         print(f"   Augmented: {len(augmented_df):,} samples")
         print(f"   Increase: {len(augmented_df) - len(df):,} (+{((len(augmented_df)/len(df)-1)*100):.1f}%)")
-        print(f"\n📊 Augmentation breakdown:")
+        print(f"\nAugmentation breakdown:")
         print(f"   MLM: {successful_aug['mlm']:,}")
         print(f"   Back Translation: {successful_aug['back_translation']:,}")
         print(f"   Failed: {failed_aug:,}")
 
         if label_column in df.columns:
-            print(f"\n📈 Label distribution:")
+            print(f"\nLabel distribution:")
             for label in sorted(augmented_df[label_column].unique()):
                 orig = len(df[df[label_column] == label])
                 aug = len(augmented_df[augmented_df[label_column] == label])
@@ -643,28 +787,35 @@ class IndicAugmentationPipeline:
 
         return augmented_df
 
-    def test_augmentation(self, text: str, language: str, n_samples: int = 3):
+    def test_augmentation(self, text: str, language: str, n_samples: int = 3, save_to_csv: bool = False, output_path: str = 'test_augmentation.csv'):
         """
-        Test augmentation on a single text
+        Test augmentation on a single text and optionally save to CSV
 
         Args:
             text: Sample text
             language: Language name
             n_samples: Number of augmented samples to generate
+            save_to_csv: Whether to save results to CSV
+            output_path: Path to save CSV file (only used if save_to_csv=True)
         """
         lang_code = self.map_language(language)
         if not lang_code:
-            print(f"❌ Unknown language: {language}")
+            print(f"Unknown language: {language}")
             return
 
-        print(f"🔬 Testing augmentation on: '{text}'\n")
+        print(f"Testing augmentation on: '{text}'\n")
         print(f"Language: {language} ({lang_code})\n")
+
+        # Store all augmentations for CSV export
+        mlm_augmentations = []
+        bt_augmentations = []
 
         print("="*70)
         print("MLM Augmentation:")
         print("="*70)
         for i in range(n_samples):
             aug = self.augment_with_mlm(text)
+            mlm_augmentations.append(aug)
             print(f"{i+1}. {aug}")
 
         if self.ip is not None:
@@ -673,10 +824,45 @@ class IndicAugmentationPipeline:
             print("="*70)
             for i in range(n_samples):
                 aug = self.augment_with_back_translation(text, lang_code)
+                bt_augmentations.append(aug)
                 print(f"{i+1}. {aug}")
         else:
-            print("\n⚠️  Back translation disabled (IndicProcessor not available)")
+            print("\nBack translation disabled (IndicProcessor not available)")
 
+        # Save to CSV if requested
+        if save_to_csv:
+            print(f"\n{'='*70}")
+            print("Saving to CSV...")
+            print("="*70)
+            
+            # Create DataFrame with original and augmented texts
+            csv_data = {
+                'language': [language],
+                'original_text': [text]
+            }
+            
+            # Add MLM augmentations
+            for i, aug in enumerate(mlm_augmentations, 1):
+                csv_data[f'mlm_aug_{i}'] = [aug]
+            
+            # Add Back Translation augmentations if available
+            if bt_augmentations:
+                for i, aug in enumerate(bt_augmentations, 1):
+                    csv_data[f'bt_aug_{i}'] = [aug]
+            
+            # Create and save DataFrame
+            df = pd.DataFrame(csv_data)
+            df.to_csv(output_path, index=False, encoding='utf-8')
+            
+            print(f"\nAugmentations saved to: {output_path}")
+            print(f"   Columns: {list(df.columns)}")
+            print(f"\nCSV Preview:")
+            print(f"   Language: {language}")
+            print(f"   Original: {text[:60]}...")
+            print(f"   MLM Augmentations: {len(mlm_augmentations)}")
+            if bt_augmentations:
+                print(f"   Back Translation Augmentations: {len(bt_augmentations)}")
+            print(f"   Total columns: {len(df.columns)}")
 
 # =============================================================================
 # USAGE EXAMPLE
@@ -688,15 +874,32 @@ if __name__ == "__main__":
     try:
         pipeline = IndicAugmentationPipeline()
     except Exception as e:
-        print(f"❌ Failed to initialize pipeline: {e}")
-        print("\n💡 Quick fix:")
+        print(f"Failed to initialize pipeline: {e}")
+        print("\nQuick fix:")
         print("   pip install torch transformers sentencepiece IndicTransToolkit")
         exit(1)
 
     # Test on single text
-    print("\n" + "="*70)
-    print("Testing Single Text")
-    print("="*70 + "\n")
+    # print("\n" + "="*70)
+    # print("Testing Single Text")
+    # print("="*70 + "\n")
 
-    sample_text = "पश्चिम बंगालमध्ये फटाक्यांच्या कारखान्यात भीषण स्फोट"
-    pipeline.test_augmentation(sample_text, language='marathi', n_samples=3)
+    # sample_text = "पश्चिम बंगालमध्ये फटाक्यांच्या कारखान्यात भीषण स्फोट"
+    # pipeline.test_augmentation(sample_text, language='marathi', n_samples=3, save_to_csv=True)
+
+    # Load your data
+    df = pd.read_csv('../dataset/all_news_data.csv')
+
+    # Create augmented CSV with separate columns
+    result = pipeline.save_augmented_samples_to_csv(
+        df=df,
+        output_path='augmented_output.csv',
+        num_aug_per_row=3,  # Create 3 augmented versions
+        techniques=['mlm', 'back_translation'],
+        text_column='text',
+        label_column='label',
+        language_column='language',
+        include_original=True
+    )
+
+    print("Done! Check augmented_output.csv")
