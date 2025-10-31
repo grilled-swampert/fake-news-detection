@@ -1,0 +1,102 @@
+# --- Python general ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+*.pdb
+*.so
+*.dll
+
+# --- Virtual environment ---
+venv/
+.env/
+.venv/
+ENV/
+env.bak/
+env/
+
+# --- Jupyter Notebooks ---
+.ipynb_checkpoints/
+*.ipynb_convert/
+
+# --- PyCharm / VS Code ---
+.idea/
+.vscode/
+*.code-workspace
+
+# --- Build / Distribution ---
+build/
+dist/
+*.egg-info/
+.eggs/
+*.manifest
+*.spec
+
+# --- Logs / Databases / Cache ---
+*.log
+*.sqlite3
+*.db
+*.cache/
+.cache/
+__pypackages__/
+
+# --- Environment / Credentials ---
+.env
+.env.local
+.env.*.local
+*.env
+*.json_secret
+secrets.json
+
+# --- Test / Coverage ---
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+*.pytest_cache/
+pytestdebug.log
+
+# --- Sphinx / Docs ---
+docs/_build/
+build/docs/
+
+# --- OS / Editor junk ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Jupyter Runtime Files ---
+.jupyter/
+.jupyter/lab/workspaces/
+~$*
+
+# --- Checkpoints ---
+checkpoint/
+checkpoints/
+outputs/
+runs/
+
+# --- Hugging Face / Model / Torch caches ---
+/huggingface/
+/transformers_cache/
+/torch_cache/
+/models/
+/model_checkpoints/
+/saved_models/
+
+# --- Datasets ---
+datasets/
+
+# --- Other possible generated folders ---
+*.bak
+*.tmp
+*.swp
+*.swo
+*.lock
