@@ -100,3 +100,7 @@ datasets/
 *.swp
 *.swo
 *.lock
+
+# --- Node.js / Frontend ---
+node_modules/
+**/node_modules/
