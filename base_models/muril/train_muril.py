@@ -1,5 +1,3 @@
-# train_muril.py
-
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from transformers import (
@@ -13,61 +11,21 @@ import numpy as np
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 import os 
 import torch
-from torch.utils.data import Dataset as TorchDataset # Added PyTorch Dataset
+from torch.utils.data import Dataset as TorchDataset
 
 # --- Hardware & Resource Configuration ---
-# Allow PyTorch to use TF32 on Ampere GPUs (like your A5000) for a speed boost
+# (These are fine to leave in the global scope)
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
-# <<< NOTE: NUM_PROC is no longer used for tokenization, 
-# but dataloader_num_workers (in TrainingArguments) is still used.
-print(f"Using {os.cpu_count()} total CPU threads.")
-
 # --- Configuration ---
+# (Constants are also fine in the global scope)
 MODEL_CHECKPOINT = "google/muril-base-cased"
 CSV_FILE_PATH = r"D:\fake-news-detection\dataset\all_news_data.csv" # Path to the CSV from Step 1
-OUTPUT_MODEL_DIR = "./muril-finetuned-fake-news" # Where to save the final model
-
-# 1. Load and Split the Dataset
-print("Loading and splitting the dataset...")
-df = pd.read_csv(CSV_FILE_PATH)
-
-train_df, test_df = train_test_split(
-    df,
-    test_size=0.2,
-    random_state=42,
-    stratify=df['label']
-)
-
-print(f"Training samples: {len(train_df)}, Testing samples: {len(test_df)}")
-
-# 2. Load Tokenizer and Preprocess Data
-print("Loading tokenizer and preprocessing data...")
-tokenizer = AutoTokenizer.from_pretrained(MODEL_CHECKPOINT)
-
-# <<< MODIFIED: Tokenize DataFrames directly (This is now single-threaded)
-print("Tokenizing training data...")
-train_encodings = tokenizer(
-    train_df['text'].tolist(), 
-    truncation=True, 
-    padding="max_length", 
-    max_length=512
-)
-print("Tokenizing testing data...")
-test_encodings = tokenizer(
-    test_df['text'].tolist(), 
-    truncation=True, 
-    padding="max_length", 
-    max_length=512
-)
-
-# Get labels
-train_labels = train_df['label'].tolist()
-test_labels = test_df['label'].tolist()
-
+OUTPUT_MODEL_DIR = "./muril-finetuned-fake-news-raw" # Where to save the final model
 
 # <<< MODIFIED: Define a custom PyTorch Dataset class
+# (Class definitions are safe in the global scope)
 class FakeNewsDataset(TorchDataset):
     def __init__(self, encodings, labels):
         self.encodings = encodings
@@ -82,14 +40,7 @@ class FakeNewsDataset(TorchDataset):
     def __len__(self):
         return len(self.labels)
 
-# <<< MODIFIED: Create instances of our new Dataset class
-train_dataset = FakeNewsDataset(train_encodings, train_labels)
-test_dataset = FakeNewsDataset(test_encodings, test_labels)
-
-# 3. Define the Model and Metrics
-print("Defining model and metrics...")
-model = AutoModelForSequenceClassification.from_pretrained(MODEL_CHECKPOINT, num_labels=2)
-
+# (Function definitions are safe in the global scope)
 def compute_metrics(pred):
     labels = pred.label_ids
     preds = np.argmax(pred.predictions, axis=1)
@@ -102,51 +53,111 @@ def compute_metrics(pred):
         'recall': recall
     }
 
-# 4. Define Training Arguments
-# (Arguments are unchanged, dataloader_num_workers is still beneficial)
-training_args = TrainingArguments(
-    output_dir=OUTPUT_MODEL_DIR,
-    num_train_epochs=3,
-    per_device_train_batch_size=32, 
-    per_device_eval_batch_size=64,
-    dataloader_num_workers=8, 
-    warmup_steps=500,
-    weight_decay=0.01,
-    logging_dir='./logs',
-    logging_steps=100,
+# <<< MODIFIED: Create a main function to hold all execution logic
+def main():
+    # <<< ADD THIS BLOCK TO CHECK FOR GPU >>>
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+        print(f"✓ GPU is available.")
+        print(f"✓ Using device: {torch.cuda.get_device_name(0)}")
+    else:
+        device = torch.device("cpu")
+        print("⚠ WARNING: GPU not available, training will run on CPU.")
+    # <<< END OF ADDED BLOCK >>>
+
+    print(f"Using {os.cpu_count()} total CPU threads.")
     
-    # <<< MODIFIED: Renamed argument for older transformers version
-    eval_strategy="epoch",
-    
-    save_strategy="epoch",
-    load_best_model_at_end=True,
-    metric_for_best_model="f1",
-    fp16=True,
-)
+    # 1. Load and Split the Dataset
+    print("Loading and splitting the dataset...")
+    df = pd.read_csv(CSV_FILE_PATH)
 
-# <<< MODIFIED: Define the data collator for dynamic padding
-data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
+    train_df, test_df = train_test_split(
+        df,
+        test_size=0.2,
+        random_state=42,
+        stratify=df['label']
+    )
 
-# 5. Initialize and Run Trainer
-trainer = Trainer(
-    model=model,
-    args=training_args,
-    train_dataset=train_dataset,
-    eval_dataset=test_dataset,
-    compute_metrics=compute_metrics,
-    tokenizer=tokenizer,
-    data_collator=data_collator  # <<< MODIFIED: Added the collator
-)
+    print(f"Training samples: {len(train_df)}, Testing samples: {len(test_df)}")
 
-print("\nStarting model training...")
-trainer.train()
+    # 2. Load Tokenizer and Preprocess Data
+    print("Loading tokenizer and preprocessing data...")
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_CHECKPOINT)
 
-# 6. Save the final model
-print("\nTraining complete. Saving the best model...")
-trainer.save_model(OUTPUT_MODEL_DIR)
-print(f"✓ Model saved to {OUTPUT_MODEL_DIR}")
+    print("Tokenizing training data...")
+    train_encodings = tokenizer(
+        train_df['text'].tolist(), 
+        truncation=True, 
+        padding="max_length", 
+        max_length=512
+    )
+    print("Tokenizing testing data...")
+    test_encodings = tokenizer(
+        test_df['text'].tolist(), 
+        truncation=True, 
+        padding="max_length", 
+        max_length=512
+    )
 
-# 7. Evaluate the final model
-print("\nEvaluating the final model on the test set...")
-eval_results = trainer.evaluate()
-print(f"Final Evaluation Results: {eval_results}")
+    # Get labels
+    train_labels = train_df['label'].tolist()
+    test_labels = test_df['label'].tolist()
+
+    # Create instances of our new Dataset class
+    train_dataset = FakeNewsDataset(train_encodings, train_labels)
+    test_dataset = FakeNewsDataset(test_encodings, test_labels)
+
+    # 3. Define the Model and Metrics
+    print("Defining model and metrics...")
+    model = AutoModelForSequenceClassification.from_pretrained(MODEL_CHECKPOINT, num_labels=2)
+
+    # 4. Define Training Arguments
+    training_args = TrainingArguments(
+        output_dir=OUTPUT_MODEL_DIR,
+        num_train_epochs=3,
+        per_device_train_batch_size=32, 
+        per_device_eval_batch_size=64,
+        dataloader_num_workers=8, # This line is now safe
+        warmup_steps=500,
+        weight_decay=0.01,
+        logging_dir='./logs',
+        logging_steps=100,
+        eval_strategy="epoch",
+        save_strategy="epoch",
+        load_best_model_at_end=True,
+        metric_for_best_model="f1",
+        fp16=True,
+    )
+
+    # Define the data collator for dynamic padding
+    data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
+
+    # 5. Initialize and Run Trainer
+    trainer = Trainer(
+        model=model,
+        args=training_args,
+        train_dataset=train_dataset,
+        eval_dataset=test_dataset,
+        compute_metrics=compute_metrics,
+        tokenizer=tokenizer,
+        data_collator=data_collator
+    )
+
+    print("\nStarting model training...")
+    trainer.train()
+
+    # 6. Save the final model
+    print("\nTraining complete. Saving the best model...")
+    trainer.save_model(OUTPUT_MODEL_DIR)
+    print(f"✓ Model saved to {OUTPUT_MODEL_DIR}")
+
+    # 7. Evaluate the final model
+    print("\nEvaluating the final model on the test set...")
+    eval_results = trainer.evaluate()
+    print(f"Final Evaluation Results: {eval_results}")
+
+
+# <<< MODIFIED: Add the guard to call the main function
+if __name__ == '__main__':
+    # This block only runs when the script is executed directly
+    main()
