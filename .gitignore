@@ -93,9 +93,11 @@ runs/
 
 # --- Datasets ---
 datasets/
+dataset/
 
 # --- Other possible generated folders ---
 *.bak
+*.csv
 *.tmp
 *.swp
 *.swo

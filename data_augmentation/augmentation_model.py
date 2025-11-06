@@ -888,13 +888,15 @@ if __name__ == "__main__":
     # pipeline.test_augmentation(sample_text, language='marathi', n_samples=3, save_to_csv=True)
 
     # Load your data
-    df = pd.read_csv('../dataset/all_news_data.csv')
+    df = pd.read_csv('../dataset/all_news_data.csv', nrows=100)
+
+
 
     # Create augmented CSV with separate columns
     result = pipeline.save_augmented_samples_to_csv(
         df=df,
         output_path='augmented_output.csv',
-        num_aug_per_row=3,  # Create 3 augmented versions
+        num_aug_per_row=3,  
         techniques=['mlm', 'back_translation'],
         text_column='text',
         label_column='label',
